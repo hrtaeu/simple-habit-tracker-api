@@ -4,10 +4,27 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.db.models import Sum
 from django.utils.timezone import now, timedelta
+from django.contrib.auth.models import User
+from .serializers import RegisterSerializer
 import random
 
 from .models import Habit, HabitTimeLog
 from .serializers import HabitSerializer, HabitTimeLogSerializer, ResetStreakSerializer
+
+# Public view (anyone can access)
+class PublicView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response({"message": "This is a public endpoint!"})
+
+# Protected view (only authenticated users)
+class ProtectedView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response({"message": "You must be logged in to see this!"})
+
 
 # List and Create Habits
 class HabitListCreateView(generics.ListCreateAPIView):
@@ -214,3 +231,14 @@ class HabitTimeSpentView(APIView):
             })
 
         return Response({"habit_time_spent": time_spent})
+
+class RegisterView(generics.CreateAPIView):
+    queryset = User.objects.all()
+    permission_classes = [AllowAny]
+    serializer_class = RegisterSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response({"message": "User registered successfully!"}, status=status.HTTP_201_CREATED)
