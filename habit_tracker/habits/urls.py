@@ -1,6 +1,5 @@
 from django.urls import path
-from .views import HabitListCreateView, HabitDetailView, DailyReminderView, MotivationalQuoteView, SetHabitGoalView, CheckHabitCompletionView, HabitStreakView, WeeklySummaryView, CompletionReportView, SetCustomReminderView, HabitMilestoneRewardView, HabitReinforcementView, HabitReinforcementView 
-from .views import HabitTimeSpentView, ResetStreakView
+from .views import HabitListCreateView, HabitDetailView, DailyReminderView, MotivationalQuoteView, SetHabitGoalView, CheckHabitCompletionView, HabitStreakView, WeeklySummaryView, CompletionReportView, SetCustomReminderView, HabitMilestoneRewardView, HabitReinforcementView
 urlpatterns = [
     path('habits/', HabitListCreateView.as_view(), name='habit-list'),
     path('habits/<int:pk>/', HabitDetailView.as_view(), name='habit-detail'),
