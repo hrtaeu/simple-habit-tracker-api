@@ -12,3 +12,6 @@ class HabitTimeLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = HabitTimeLog
         fields = '__all__'
+
+class ResetStreakSerializer(serializers.Serializer):
+    habit_id = serializers.IntegerField()
