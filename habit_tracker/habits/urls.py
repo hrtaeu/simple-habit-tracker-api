@@ -1,5 +1,7 @@
 from django.urls import path
+from rest_framework.authtoken.views import obtain_auth_token
 from .views import HabitListCreateView, HabitDetailView, DailyReminderView, MotivationalQuoteView, SetHabitGoalView, CheckHabitCompletionView, HabitStreakView, WeeklySummaryView, CompletionReportView, SetCustomReminderView, HabitMilestoneRewardView, HabitReinforcementView
+from .views import HabitTimeSpentView, ResetStreakView, RegisterView
 urlpatterns = [
     path('habits/', HabitListCreateView.as_view(), name='habit-list'),
     path('habits/<int:pk>/', HabitDetailView.as_view(), name='habit-detail'),
@@ -15,5 +17,8 @@ urlpatterns = [
     path('habits/reinforce/', HabitReinforcementView.as_view(), name='habit-reinforce'),
     path('habits/time-spent/', HabitTimeSpentView.as_view(), name='habit-time-spent'),
     path('habits/reset-streak/', ResetStreakView.as_view(), name='reset-streak'),
+
+    path('register/', RegisterView.as_view(), name='register'),
+    path('login/', obtain_auth_token, name='login'),
 ]
 
