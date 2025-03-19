@@ -1,6 +1,6 @@
 from django.contrib.auth.models import User
 from django.db import models
-from django.utils.timezone import now, timedelta
+from django.utils.timezone import now
 
 class Habit(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)  # User is optional
@@ -14,14 +14,26 @@ class Habit(models.Model):
     progress = models.IntegerField(default=0)  # Progress tracking
     streak = models.IntegerField(default=0)
 
-    def __str__(self):
-        return self.name
+    def save(self, *args, **kwargs):
+        """ Automatically update completed_at and streak when completed is set to True. """
+        if self.completed:
+            if not self.completed_at:  # Set completed_at only if it's not already set
+                self.completed_at = now().date()
+            self.streak = self.calculate_streak()  # Recalculate streak when habit is completed
+        else:
+            self.completed_at = None  # Reset completed_at if marked incomplete
+            self.streak = 0  # Reset streak
+        
+        super().save(*args, **kwargs)
 
     def calculate_streak(self):
         """
         Calculate the streak of consecutive days this habit was completed.
         """
-        habit_entries = Habit.objects.filter(user=self.user, name=self.name, completed=True).order_by('-completed_at')
+        habit_entries = Habit.objects.filter(
+            user=self.user, name=self.name, completed=True
+        ).order_by("-completed_at")
+
         if not habit_entries:
             return 0  # No completed habits
 
@@ -36,7 +48,10 @@ class Habit(models.Model):
                 break  # Streak is broken
 
         return streak
-    
+
+    def __str__(self):
+        return f"{self.name} - {'Completed' if self.completed else 'Pending'}"
+
 class HabitTimeLog(models.Model):
     habit = models.ForeignKey(Habit, on_delete=models.CASCADE)
     user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
