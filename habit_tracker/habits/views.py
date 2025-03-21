@@ -1,6 +1,6 @@
-from rest_framework import generics, status
+from rest_framework import generics, status, permissions
 from django.shortcuts import get_object_or_404
-from rest_framework.views import APIView
+from rest_framework.views import APIView, exception_handler
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.db.models import Sum
@@ -15,10 +15,96 @@ from io import BytesIO
 from .models import Habit
 from calendar import monthrange
 from collections import defaultdict
+from rest_framework import status
+from django.http import JsonResponse
+from rest_framework.authtoken.views import ObtainAuthToken
+from rest_framework.authtoken.models import Token
+from .models import UserProfile
+from django.urls import path 
 import random
+import json
 
 from .models import Habit, HabitTimeLog
 from .serializers import HabitSerializer, HabitTimeLogSerializer, ResetStreakSerializer
+
+
+class CustomLoginView(ObtainAuthToken):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)  # Call default login
+        token = Token.objects.get(key=response.data['token'])  # Fetch user token
+        return Response({
+            'token': token.key,
+            'message': "Good day! For your guide, input /habit/guide/"
+        })
+
+def custom_exception_handler(exc, context):
+    response = exception_handler(exc, context)
+
+    if response is not None and "Invalid token header" in str(exc):
+        response.data = {"Please provide a username and password to create your account and get started.",
+                         "username:",
+                         "password:",
+                         "password2"}
+    
+
+    return response
+
+def custom_404_view(request, exception=None):
+    return JsonResponse(
+        {"error": "The URL was not found. Try using the guide feature to see what you're trying to get.",
+         "url": "http://127.0.0.1:8000/habit/guide/"
+        },
+        status=404
+    )
+
+def api_guide_view(request):
+    """
+    Returns a list of available API endpoints with descriptions.
+    """
+    api_endpoints = {
+        "Authentication & User Management": {
+            "Register": "/register/",
+            "Login": "/login/",
+            "View Profile": "/profile/view/",
+            "Update Profile": "/profile/update/",
+        },
+        "Habit Management": {
+            "List & Create Habits": "/habits/",
+            "Habit Detail (Retrieve, Update, Delete)": "/habits/<int:pk>/",
+            "Set Habit Goals": "/habits/set-goals/<int:pk>/",
+            "Reset Habit Streak": "/habits/reset-streak/<int:pk>/",
+        },
+        "Habit Tracking & Completion": {
+            "Track Completion": "/habits/track-completion/",
+            "Check Completion": "/check-completion/<int:pk>/",
+            "Habit Streaks": "/habits/streaks/",
+            "Time Spent on Habit": "/habits/time-spent/<int:pk>/",
+            "Frequency Over Time": "/habits/frequency-over-time/<int:pk>/",
+            "Log in Time Spent on Habit": "habits/time-spent-log/",
+        },
+        "Progress & Reports": {
+            "Weekly Summary": "/progress/weekly-summary/",
+            "Completion Report": "/progress/completion-report/",
+            "Generate Reports": "/reports/generate/",
+            "Progress Calendar": "/habits/progress-calendar/",
+        },
+        "Motivation & Suggestions": {
+            "Motivational Quotes": "/motivation/quotes/",
+            "Suggest New Habit": "/habits/suggest-new/<int:pk>/",
+            "Personalized Habit Suggestions": "/habits/suggest-personalized/",
+        },
+        "Other Features": {
+            "Milestone Rewards": "/habits/milestones/rewards/",
+            "Reinforcement Messages": "/habits/reinforce/<int:pk>/",
+            "Daily Habit Reminders": "/habits/daily-reminders/",
+            "Scale Habit Difficulty": "/habits/scale-difficulty/",
+            "Suggest Tracking Methods": "/habits/suggest-tracking-methods/",
+        }
+    }
+    
+    return JsonResponse({"message": "API Guide", "endpoints": api_endpoints}, status=200)
 
 # Public view (anyone can access)
 class PublicView(APIView):
@@ -35,7 +121,6 @@ class ProtectedView(APIView):
         return Response({"message": "You must be logged in to see this!"})
 
 
-# List and Create Habits
 class HabitListCreateView(generics.ListCreateAPIView):
     queryset = Habit.objects.all()
     serializer_class = HabitSerializer
@@ -44,36 +129,40 @@ class HabitListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
+    def get_queryset(self):
+        return self.queryset.filter(user=self.request.user)
+
 # Retrieve, Update, and Delete Habit
 class HabitDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Habit.objects.all()
     serializer_class = HabitSerializer
     permission_classes = [IsAuthenticated]  
 
+    def get_queryset(self):
+        return Habit.objects.filter(user=self.request.user) 
+
+
 # Daily Habit Reminder View
 class DailyReminderView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        habits = Habit.objects.filter(user=request.user, reminder_time__isnull=False)
+        habits = Habit.objects.filter(user=request.user)
 
-        # If no habits with reminder_time are found
-        if not habits:
-            return Response({"message": "No habits with reminders set."}, status=200)
+        if not habits.exists():
+            return Response({"message": "You have no habits added yet."}, status=200)
 
         reminders = []
         for habit in habits:
             if habit.completed:
-                # If the habit is completed, congratulate the user
                 reminders.append({
                     "habit": habit.name,
-                    "message": f"Congrats! You've completed '{habit.name}' today! 🎉"
+                    "message": f"🎉 Congrats! You've completed '{habit.name}' today!"
                 })
             else:
-                # If the habit is not completed, send a reminder
                 reminders.append({
                     "habit": habit.name,
-                    "message": f"Don't forget to complete '{habit.name}' today! ⏰"
+                    "message": f"⏰ Reminder: Don't forget to complete '{habit.name}' today!"
                 })
 
         return Response({"daily_reminders": reminders})
@@ -180,23 +269,34 @@ class ResetStreakView(APIView):
             return Response({"error": "Habit not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
-class SetCustomReminderView(APIView):
-    permission_classes = [IsAuthenticated]
+class UserProfileView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
 
-    def post(self, request):
-        habit_id = request.data.get("habit_id")
-        reminder_time = request.data.get("reminder_time")
+    def get(self, request):
+        """Retrieve the authenticated user's profile."""
+        user = request.user
+        profile, _ = UserProfile.objects.get_or_create(user=user)  # Ensure profile exists
+        
+        data = {
+            "username": user.username,  # Username is retrieved but not required for updates
+            "date_joined": user.date_joined,
+            "bio": profile.bio,
+        }
+        return Response(data, status=status.HTTP_200_OK)
 
-        if not habit_id or not reminder_time:
-            return Response({"error": "habit_id and reminder_time are required."}, status=status.HTTP_400_BAD_REQUEST)
+    def patch(self, request):
+        """Update the authenticated user's bio."""
+        user = request.user
+        profile, _ = UserProfile.objects.get_or_create(user=user)  # Ensure profile exists
 
-        try:
-            habit = Habit.objects.get(id=habit_id, user=request.user)
-            habit.reminder_time = reminder_time
-            habit.save()
-            return Response({"message": "Reminder set successfully!", "habit": HabitSerializer(habit).data})
-        except Habit.DoesNotExist:
-            return Response({"error": "Habit not found."}, status=status.HTTP_404_NOT_FOUND)
+        bio = request.data.get("bio", "")
+        profile.bio = bio
+        profile.save()
+
+        return Response(
+            {"message": "Profile updated successfully", "bio": profile.bio},
+            status=status.HTTP_200_OK
+        )
 
 # Habit Milestone Reward View
 class HabitMilestoneRewardView(APIView):
@@ -205,26 +305,47 @@ class HabitMilestoneRewardView(APIView):
     def get(self, request):
         habits = Habit.objects.filter(user=request.user)
         rewards = []
+        no_streaks = True  # Flag to check if any habit has a streak
+
+        # Medal tiers based on streak
+        medals = {
+            10: "🥉 Bronze Medal",
+            20: "🥈 Silver Medal",
+            30: "🥇 Gold Medal",
+            50: "🏆 Platinum Trophy",
+        }
 
         for habit in habits:
-            if habit.streak and habit.streak % 10 == 0:  # Reward for every 10-day streak
+            if habit.streak and habit.streak > 0:
+                no_streaks = False  # At least one habit has a streak
+
+                # Determine the highest earned medal
+                earned_medal = None
+                for days, medal in sorted(medals.items()):
+                    if habit.streak >= days:
+                        earned_medal = medal
+                
                 rewards.append({
                     "habit": habit.name,
-                    "message": f"Congratulations! You've reached a {habit.streak}-day streak 🎉"
+                    "streak": habit.streak,
+                    "message": f"🎉 Congrats! You've reached a {habit.streak}-day streak!",
+                    "medal": earned_medal if earned_medal else "🎖 Keep going!"
                 })
 
-        return Response({"milestone_rewards": rewards})
+        # If no streaks found, encourage the user
+        if no_streaks:
+            return Response({
+                "message": "🚀 Keep going to unlock streaks and earn rewards!"
+            }, status=status.HTTP_200_OK)
+
+        return Response({"milestone_rewards": rewards}, status=status.HTTP_200_OK)
 
 # Habit Reinforcement View
 class HabitReinforcementView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
-        habit_id = request.data.get("habit_id")
-        if not habit_id:
-            return Response({"error": "habit_id is required."}, status=status.HTTP_400_BAD_REQUEST)
-
-        habit = get_object_or_404(Habit, id=habit_id, user=request.user)
+    def get(self, request, pk):  # Use pk from URL
+        habit = get_object_or_404(Habit, id=pk, user=request.user)
 
         # Example reinforcement messages based on streaks
         messages = {
@@ -240,38 +361,70 @@ class HabitReinforcementView(APIView):
                 "name": habit.name,
                 "streak": habit.streak
             }
-            
-        })
+        }, status=status.HTTP_200_OK)
 
 # Habit Time Spent View
 class HabitTimeSpentView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
+        """Retrieve total time spent on a habit"""
         try:
             habit = Habit.objects.get(id=pk, user=request.user)
         except Habit.DoesNotExist:
             return Response({"error": "Habit not found."}, status=status.HTTP_404_NOT_FOUND)
-        
-        total_time = HabitTimeLog.objects.filter(habit=habit).aggregate(Sum('time_spent'))['time_spent__sum'] or 0
+
+        # Check if logs exist
+        logs = HabitTimeLog.objects.filter(habit=habit)
+        if not logs.exists():
+            return Response({
+                "habit": habit.name,
+                "total_time_spent": 0,
+                "message": f"No time logs found for '{habit.name}'."
+            }, status=status.HTTP_200_OK)
+
+        # Calculate total time spent
+        total_time = logs.aggregate(Sum('time_spent'))['time_spent__sum'] or 0
 
         return Response({
             "habit": habit.name,
             "total_time_spent": total_time,
             "message": f"You've spent {total_time} minutes on '{habit.name}' so far."
-        })
+        }, status=status.HTTP_200_OK)
+    
+class LogHabitTimeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        """Log time spent on a habit separately"""
+        try:
+            habit = Habit.objects.get(id=pk, user=request.user)
+        except Habit.DoesNotExist:
+            return Response({"error": "Habit not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        time_spent = request.data.get("time_spent")
+        if not time_spent or not isinstance(time_spent, int) or time_spent <= 0:
+            return Response({"error": "Invalid time_spent value."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Save the time log
+        HabitTimeLog.objects.create(habit=habit, time_spent=time_spent)
+
+        return Response({"message": f"Logged {time_spent} minutes for '{habit.name}'."}, status=status.HTTP_201_CREATED)
 
 class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     permission_classes = [AllowAny]
     serializer_class = RegisterSerializer
 
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        return Response({"message": "User registered successfully!"}, status=status.HTTP_201_CREATED)
-
+def create(self, request, *args, **kwargs):
+    print("Request Headers:", request.headers)
+    print("Request Data:", request.data)
+    serializer = self.get_serializer(data=request.data)
+    if not serializer.is_valid():
+        print("Errors:", serializer.errors)
+    serializer.is_valid(raise_exception=True)
+    user = serializer.save()
+    return Response({"message": "User registered successfully!"}, status=status.HTTP_201_CREATED)
 class ScaleHabitDifficultyView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -365,20 +518,30 @@ class SuggestNewHabitView(APIView):
         habit = get_object_or_404(Habit, id=pk, user=request.user)
         suggestions = []
 
-        habit_name = habit.name.lower()  # Make it case-insensitive
+        habit_name = habit.name.lower()  # Normalize to lowercase
 
-        if "water" in habit_name or "hydration" in habit_name:
-            suggestions.append("Since you stay hydrated, try tracking your daily caffeine intake.")
+        # Keyword-based categories for flexible matching
+        habit_keywords = {
+            "hydration": ["water", "hydration", "drink", "fluid"],
+            "fitness": ["exercise", "workout", "gym", "run", "training", "cardio", "lifting"],
+            "reading": ["read", "books", "literature", "novel", "study"],
+            "mental_wellness": ["meditation", "mindfulness", "breathe", "relax", "calm", "reflect"],
+        }
 
-        if "exercise" in habit_name or "workout" in habit_name:
-            suggestions.append("Try meal prepping to support your fitness goals.")
+        # Mapping categories to habit suggestions
+        habit_suggestions = {
+            "hydration": "Since you stay hydrated, try tracking your daily caffeine intake.",
+            "fitness": "Try meal prepping to support your fitness goals.",
+            "reading": "You might enjoy listening to audiobooks or joining a book club.",
+            "mental_wellness": "You might benefit from journaling your daily thoughts.",
+        }
 
-        if "reading" in habit_name:
-            suggestions.append("You might enjoy listening to audiobooks or joining a book club.")
+        # Check which category the habit belongs to
+        for category, keywords in habit_keywords.items():
+            if any(keyword in habit_name for keyword in keywords):  # Match any keyword
+                suggestions.append(habit_suggestions[category])
 
-        if "meditation" in habit_name or "mindfulness" in habit_name:
-            suggestions.append("You might benefit from journaling your daily thoughts.")
-
+        # If no matches, provide a general message
         if not suggestions:
             suggestions.append("No direct suggestions for this habit. Keep exploring new habits!")
 

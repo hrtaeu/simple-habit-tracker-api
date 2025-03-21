@@ -23,9 +23,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-&l1tc6z0va7t6-o70*ghnz7_&9p(52&bizt5@sd6u9bp^uy@vd'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -51,6 +51,7 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',  # This is the default, override per view
     ],
+    'EXCEPTION_HANDLER':'habits.views.custom_exception_handler',
 } 
 
 MIDDLEWARE = [

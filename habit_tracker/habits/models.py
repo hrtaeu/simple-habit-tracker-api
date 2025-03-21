@@ -6,7 +6,6 @@ class Habit(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)  # User is optional
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
-    reminder_time = models.TimeField(blank=True, null=True)  # Time for daily reminders
     completed = models.BooleanField(default=False)
     completed_at = models.DateField(blank=True, null=True)  # Last completed date
     created_at = models.DateTimeField(auto_now_add=True)
@@ -60,3 +59,10 @@ class HabitTimeLog(models.Model):
 
     def __str__(self):
         return f"{self.habit.name} - {self.time_spent} min on {self.date}"
+    
+class UserProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
+    bio = models.TextField(blank=True, null=True)
+
+    def __str__(self):
+        return self.user.username
